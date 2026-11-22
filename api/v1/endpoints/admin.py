@@ -22,17 +22,17 @@ def stats():
             }), 403
 
         cur.execute(
-            "select role, count(*) from public.profiles group by role"
+            "select role, count(*) from public.users group by role"
         )
         roles = {r[0]: r[1] for r in cur.fetchall()}
 
         cur.execute(
-            "select count(*) from public.appointments"
+            "select count(*) from public.consultas"
         )
         appointments = cur.fetchone()[0]
 
         cur.execute(
-            "select count(*) from public.appointments where status = 'realizada'"
+            "select count(*) from public.consultas where status in ('concluida', 'realizada')"
         )
         completed = cur.fetchone()[0]
 
@@ -40,7 +40,7 @@ def stats():
             'success': True,
             'stats': {
                 'pacientes': roles.get('paciente', 0),
-                'medicos': roles.get('medico', 0),
+                'medicos': roles.get('medico', 0) + roles.get('profissional', 0),
                 'admins': roles.get('admin', 0),
                 'consultas': appointments,
                 'realizadas': completed
@@ -64,7 +64,7 @@ def users():
             }), 403
 
         cur.execute(
-            "select id, nome, telefone, role, especialidade, registro, criado_em from public.profiles order by criado_em desc"
+            "select id, nome, telefone, role, especialidade, registro, created_at from public.users order by created_at desc"
         )
 
         data = [
@@ -75,7 +75,7 @@ def users():
                 'role': r[3],
                 'especialidade': r[4],
                 'registro': r[5],
-                'criado_em': r[6].isoformat()
+                'criado_em': r[6].isoformat() if r[6] else None
             }
             for r in cur.fetchall()
         ]
@@ -88,7 +88,7 @@ def users():
         conn.close()
 
 
-@bp.patch('/users/<uuid:user_id>')
+@bp.patch('/users/<int:user_id>')
 @require_auth
 def update_user(user_id):
     data = request.get_json() or {}
@@ -111,8 +111,8 @@ def update_user(user_id):
             }), 403
 
         cur.execute(
-            'update public.profiles set role = %s where id = %s returning id',
-            (role, str(user_id))
+            'update public.users set role = %s where id = %s returning id',
+            (role, user_id)
         )
 
         if not cur.fetchone():
@@ -132,7 +132,7 @@ def update_user(user_id):
         conn.close()
 
 
-@bp.delete('/users/<uuid:user_id>')
+@bp.delete('/users/<int:user_id>')
 @require_auth
 def delete_user(user_id):
     conn = get_db()
@@ -145,15 +145,15 @@ def delete_user(user_id):
                 'message': 'Acesso restrito ao administrador.'
             }), 403
 
-        if str(user_id) == g.auth_user_id:
+        if user_id == int(g.auth_user_id):
             return jsonify({
                 'success': False,
                 'message': 'O administrador não pode excluir a própria conta.'
             }), 400
 
         cur.execute(
-            'delete from public.profiles where id = %s returning id',
-            (str(user_id),)
+            'delete from public.users where id = %s returning id',
+            (user_id,)
         )
 
         if not cur.fetchone():

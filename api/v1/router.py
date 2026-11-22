@@ -5,6 +5,7 @@ from __future__ import annotations
 from flask import Flask
 
 from .endpoints.admin import bp as admin_bp
+from .endpoints.auth import bp as auth_bp
 from .endpoints.chat import bp as chat_bp
 from .endpoints.doctor import bp as doctor_bp
 from .endpoints.patient import bp as patient_bp
@@ -14,6 +15,7 @@ from .endpoints.reviews import bp as reviews_bp
 
 
 API_BLUEPRINTS = (
+    auth_bp,
     patient_bp,
     admin_bp,
     doctor_bp,

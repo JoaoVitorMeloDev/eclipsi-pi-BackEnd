@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
-from uuid import UUID
 
 from flask import Blueprint, g, jsonify, request
+from psycopg2 import sql
+
 from api.core.database import get_db
 from api.core.security import require_auth
 from api.schemas.domain import APPOINTMENT_STATUSES, PROFILE_UPDATE_FIELDS
@@ -9,24 +12,51 @@ from api.schemas.domain import APPOINTMENT_STATUSES, PROFILE_UPDATE_FIELDS
 
 bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
+PROFILE_UPDATE_SETTERS = {
+    "nome": "nome = %s",
+    "telefone": "telefone = %s",
+    "idade": "idade = %s",
+    "genero": "genero = %s",
+    "descricao": "descricao = %s",
+    "especialidade": "especialidade = %s",
+    "registro": "registro = %s",
+    "uf": "uf = %s",
+    "valor_hora": "valor_hora = %s",
+}
 
-def _profile_role(cur, user_id):
+
+def _profile_role(cur, user_id: str):
     cur.execute(
-        "select id, nome, email, role from public.profiles where id = %s",
-        (user_id,)
+        "select id, nome, email, role from public.users where id = %s",
+        (int(user_id),),
     )
     return cur.fetchone()
 
 
 def _doctor(row):
     return {
-        "id": str(row[0]),
+        "id": row[0],
         "nome": row[1],
         "especialidade": row[2],
         "registro": row[3],
         "uf": row[4],
         "descricao": row[5],
-        "valor_hora": float(row[6]) if row[6] is not None else None
+        "valor_hora": float(row[6]) if row[6] is not None else None,
+    }
+
+
+def _appointment_row(row):
+    return {
+        "id": row[0],
+        "data_hora": row[1].isoformat(),
+        "valor": float(row[2]),
+        "status": row[3],
+        "anotacoes": row[4],
+        "paciente_id": row[5],
+        "paciente_nome": row[6],
+        "medico_id": row[7],
+        "medico_nome": row[8],
+        "especialidade": row[9],
     }
 
 
@@ -37,23 +67,18 @@ def my_profile():
     try:
         cur = conn.cursor()
         cur.execute(
-            """select id, nome, telefone, role, idade, genero, especialidade, registro, uf, descricao, valor_hora
-               from public.profiles where id = %s""",
-            (g.auth_user_id,)
+            """select id, nome, telefone, role, idade, genero, especialidade,
+                      registro, uf, descricao, valor_hora, email, foto
+               from public.users where id = %s""",
+            (int(g.auth_user_id),),
         )
-
         row = cur.fetchone()
-
         if not row:
-            return jsonify({
-                "success": False,
-                "message": "Perfil não encontrado."
-            }), 404
-
+            return jsonify({"success": False, "message": "Perfil não encontrado."}), 404
         return jsonify({
             "success": True,
             "profile": {
-                "id": str(row[0]),
+                "id": row[0],
                 "nome": row[1],
                 "telefone": row[2],
                 "role": row[3],
@@ -63,9 +88,11 @@ def my_profile():
                 "registro": row[7],
                 "uf": row[8],
                 "descricao": row[9],
-                "valor_hora": float(row[10]) if row[10] is not None else None
-            }
-        })
+                "valor_hora": float(row[10]) if row[10] is not None else None,
+                "email": row[11],
+                "foto": row[12],
+            },
+        }), 200
     finally:
         conn.close()
 
@@ -74,55 +101,37 @@ def my_profile():
 @require_auth
 def update_my_profile():
     data = request.get_json() or {}
-
-    values = {
-        key: data[key]
-        for key in PROFILE_UPDATE_FIELDS
-        if key in data
-    }
-
-    if "nome" in values and (
-        not isinstance(values["nome"], str)
-        or not values["nome"].strip()
-    ):
+    if "role" in data or "tipo" in data:
         return jsonify({
             "success": False,
-            "message": "Nome inválido."
-        }), 400
+            "message": "O cargo só pode ser alterado pelo administrador.",
+        }), 403
 
+    values = {key: data[key] for key in PROFILE_UPDATE_FIELDS if key in data}
+    if "nome" in values and (not isinstance(values["nome"], str) or not values["nome"].strip()):
+        return jsonify({"success": False, "message": "Nome inválido."}), 400
     if not values:
-        return jsonify({
-            "success": False,
-            "message": "Nenhum campo para atualizar."
-        }), 400
+        return jsonify({"success": False, "message": "Nenhum campo para atualizar."}), 400
 
     conn = get_db()
     try:
         cur = conn.cursor()
-
-        sets = ", ".join(
-            f"{key} = %s"
-            for key in values
-        )
-
+        set_clauses = [
+            sql.SQL(PROFILE_UPDATE_SETTERS[key])
+            for key in PROFILE_UPDATE_SETTERS
+            if key in values
+        ]
+        set_values = [values[key] for key in PROFILE_UPDATE_SETTERS if key in values]
         cur.execute(
-            f"update public.profiles set {sets} where id = %s returning id",
-            (*values.values(), g.auth_user_id)
+            sql.SQL("update public.users set {sets} where id = %s returning id")
+            .format(sets=sql.SQL(", ").join(set_clauses)),
+            (*set_values, int(g.auth_user_id)),
         )
-
         if not cur.fetchone():
             conn.rollback()
-            return jsonify({
-                "success": False,
-                "message": "Perfil não encontrado."
-            }), 404
-
+            return jsonify({"success": False, "message": "Perfil não encontrado."}), 404
         conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": "Perfil atualizado."
-        })
+        return jsonify({"success": True, "message": "Perfil atualizado."}), 200
     finally:
         conn.close()
 
@@ -131,25 +140,20 @@ def update_my_profile():
 @require_auth
 def doctors():
     q = (request.args.get("q") or "").strip()[:100]
-
     conn = get_db()
     try:
         cur = conn.cursor()
         cur.execute(
             """select id, nome, especialidade, registro, uf, descricao, valor_hora
-               from public.profiles
-               where role = 'medico' and (%s = '' or nome ilike %s or coalesce(especialidade,'') ilike %s or coalesce(descricao,'') ilike %s)
+               from public.users
+               where role in ('medico', 'profissional')
+                 and (%s = '' or nome ilike %s
+                      or coalesce(especialidade, '') ilike %s
+                      or coalesce(descricao, '') ilike %s)
                order by nome""",
-            (q, f"%{q}%", f"%{q}%", f"%{q}%")
+            (q, f"%{q}%", f"%{q}%", f"%{q}%"),
         )
-
-        return jsonify({
-            "success": True,
-            "doctors": [
-                _doctor(r)
-                for r in cur.fetchall()
-            ]
-        })
+        return jsonify({"success": True, "doctors": [_doctor(row) for row in cur.fetchall()]}), 200
     finally:
         conn.close()
 
@@ -158,89 +162,57 @@ def doctors():
 @require_auth
 def create_appointment():
     data = request.get_json() or {}
-
     try:
-        doctor_id = UUID(str(data["medico_id"]))
-        when = datetime.fromisoformat(
-            str(data["data_hora"]).replace("Z", "+00:00")
-        )
+        doctor_id = int(data["medico_id"])
+        when = datetime.fromisoformat(str(data["data_hora"]).replace("Z", "+00:00"))
     except (KeyError, ValueError, TypeError):
-        return jsonify({
-            "success": False,
-            "message": "Médico ou data inválidos."
-        }), 400
-
+        return jsonify({"success": False, "message": "Médico ou data inválidos."}), 400
     if when.tzinfo is None:
-        return jsonify({
-            "success": False,
-            "message": "A data deve conter fuso horário."
-        }), 400
-
+        return jsonify({"success": False, "message": "A data deve conter fuso horário."}), 400
     if when <= datetime.now(timezone.utc):
-        return jsonify({
-            "success": False,
-            "message": "Escolha uma data futura."
-        }), 400
+        return jsonify({"success": False, "message": "Escolha uma data futura."}), 400
 
     conn = get_db()
     try:
         cur = conn.cursor()
         profile = _profile_role(cur, g.auth_user_id)
-
         if not profile or profile[3] != "paciente":
             return jsonify({
                 "success": False,
-                "message": "Somente pacientes podem agendar consultas."
+                "message": "Somente pacientes podem agendar consultas.",
             }), 403
-
         cur.execute(
-            "select id, valor_hora from public.profiles where id = %s and role = 'medico'",
-            (str(doctor_id),)
+            "select id, valor_hora from public.users "
+            "where id = %s and role in ('medico', 'profissional')",
+            (doctor_id,),
         )
         doctor = cur.fetchone()
-
         if not doctor:
-            return jsonify({
-                "success": False,
-                "message": "Profissional não encontrado."
-            }), 404
-
+            return jsonify({"success": False, "message": "Profissional não encontrado."}), 404
         cur.execute(
-            """insert into public.appointments (paciente_id, medico_id, data_hora, valor)
-               values (%s, %s, %s, %s) returning id, data_hora, valor, status""",
-            (g.auth_user_id, str(doctor_id), when, doctor[1] or 0)
+            """insert into public.consultas
+               (paciente_id, medico_id, data_hora, valor)
+               values (%s, %s, %s, %s)
+               returning id, data_hora, valor, status""",
+            (int(g.auth_user_id), doctor_id, when, doctor[1] or 0),
         )
-
         row = cur.fetchone()
         conn.commit()
-
         return jsonify({
             "success": True,
             "appointment": {
-                "id": str(row[0]),
+                "id": row[0],
                 "data_hora": row[1].isoformat(),
                 "valor": float(row[2]),
-                "status": row[3]
-            }
+                "status": row[3],
+            },
         }), 201
-
     except Exception as exc:
         conn.rollback()
-
-        if (
-            "ux_appointments_doctor_time" in str(exc)
-            or "duplicate key" in str(exc).lower()
-        ):
-            return jsonify({
-                "success": False,
-                "message": "Este horário já está ocupado."
-            }), 409
-
-        return jsonify({
-            "success": False,
-            "message": "Não foi possível criar a consulta."
-        }), 500
-
+        message = str(exc).lower()
+        if "ux_appointments_doctor_time" in message or "duplicate key" in message:
+            return jsonify({"success": False, "message": "Este horário já está ocupado."}), 409
+        return jsonify({"success": False, "message": "Não foi possível criar a consulta."}), 500
     finally:
         conn.close()
 
@@ -252,73 +224,145 @@ def list_appointments():
     try:
         cur = conn.cursor()
         cur.execute(
-            """select a.id, a.data_hora, a.valor, a.status, a.anotacoes,
+            """select c.id, c.data_hora, c.valor, c.status, c.anotacoes,
                       p.id, p.nome, d.id, d.nome, d.especialidade
-               from public.appointments a
-               join public.profiles p on p.id = a.paciente_id
-               join public.profiles d on d.id = a.medico_id
-               where a.paciente_id = %s or a.medico_id = %s
-               order by a.data_hora""",
-            (g.auth_user_id, g.auth_user_id)
+               from public.consultas c
+               join public.users p on p.id = c.paciente_id
+               join public.users d on d.id = c.medico_id
+               where c.paciente_id = %s or c.medico_id = %s
+               order by c.data_hora""",
+            (int(g.auth_user_id), int(g.auth_user_id)),
         )
-
-        items = [
-            {
-                "id": str(r[0]),
-                "data_hora": r[1].isoformat(),
-                "valor": float(r[2]),
-                "status": r[3],
-                "anotacoes": r[4],
-                "paciente_id": str(r[5]),
-                "paciente_nome": r[6],
-                "medico_id": str(r[7]),
-                "medico_nome": r[8],
-                "especialidade": r[9]
-            }
-            for r in cur.fetchall()
-        ]
-
         return jsonify({
             "success": True,
-            "appointments": items
-        })
+            "appointments": [_appointment_row(row) for row in cur.fetchall()],
+        }), 200
     finally:
         conn.close()
 
 
-@bp.patch("/appointments/<uuid:appointment_id>")
+@bp.get("/appointments/<int:appointment_id>")
 @require_auth
-def update_appointment(appointment_id):
-    data = request.get_json() or {}
-    status = data.get("status")
-
-    if status not in APPOINTMENT_STATUSES:
-        return jsonify({
-            "success": False,
-            "message": "Status inválido."
-        }), 400
-
+def get_appointment(appointment_id):
     conn = get_db()
     try:
         cur = conn.cursor()
         cur.execute(
-            """update public.appointments set status = %s
-               where id = %s and (paciente_id = %s or medico_id = %s) returning id""",
-            (status, str(appointment_id), g.auth_user_id, g.auth_user_id)
+            """select c.id, c.data_hora, c.valor, c.status, c.anotacoes,
+                      p.id, p.nome, d.id, d.nome, d.especialidade
+               from public.consultas c
+               join public.users p on p.id = c.paciente_id
+               join public.users d on d.id = c.medico_id
+               where c.id = %s and (c.paciente_id = %s or c.medico_id = %s)""",
+            (appointment_id, int(g.auth_user_id), int(g.auth_user_id)),
         )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"success": False, "message": "Consulta não encontrada."}), 404
+        return jsonify({"success": True, "appointment": _appointment_row(row)}), 200
+    finally:
+        conn.close()
 
-        if not cur.fetchone():
-            conn.rollback()
+
+@bp.patch("/appointments/<int:appointment_id>")
+@require_auth
+def update_appointment(appointment_id):
+    data = request.get_json() or {}
+    status = data.get("status")
+    anotacoes = data.get("anotacoes")
+
+    if status is not None and status not in APPOINTMENT_STATUSES:
+        return jsonify({"success": False, "message": "Status inválido."}), 400
+    if status is None and anotacoes is None:
+        return jsonify({"success": False, "message": "Informe status ou anotacoes."}), 400
+
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        profile = _profile_role(cur, g.auth_user_id)
+        if not profile:
+            return jsonify({"success": False, "message": "Perfil não encontrado."}), 404
+        role = profile[3]
+
+        cur.execute(
+            "select id, paciente_id, medico_id, status "
+            "from public.consultas where id = %s",
+            (appointment_id,),
+        )
+        appointment = cur.fetchone()
+        if not appointment:
+            return jsonify({"success": False, "message": "Consulta não encontrada."}), 404
+
+        patient_id, doctor_id, current_status = appointment[1], appointment[2], appointment[3]
+        user_id = int(g.auth_user_id)
+        linked = user_id in (patient_id, doctor_id)
+        if not linked:
+            return jsonify({"success": False, "message": "Consulta sem permissão."}), 403
+        if str(current_status).lower() in ("concluida", "realizada", "cancelada"):
             return jsonify({
                 "success": False,
-                "message": "Consulta não encontrada ou sem permissão."
-            }), 404
+                "message": "Consulta concluída ou cancelada não pode ser alterada.",
+            }), 400
 
+        if status in ("concluida", "realizada"):
+            if role not in ("profissional", "medico") or user_id != doctor_id:
+                return jsonify({
+                    "success": False,
+                    "message": "Somente o profissional vinculado pode concluir a consulta.",
+                }), 403
+        elif status == "cancelada":
+            if user_id not in (patient_id, doctor_id):
+                return jsonify({"success": False, "message": "Sem permissão para cancelar."}), 403
+
+        assignments = []
+        values = []
+        if status is not None:
+            assignments.append("status = %s")
+            values.append(status)
+        if anotacoes is not None:
+            assignments.append("anotacoes = %s")
+            values.append(anotacoes)
+        cur.execute(
+            "update public.consultas set "
+            + ", ".join(assignments)
+            + " where id = %s returning id, status, anotacoes",
+            (*values, appointment_id),
+        )
+        row = cur.fetchone()
         conn.commit()
-
         return jsonify({
             "success": True,
-            "message": "Consulta atualizada."
-        })
+            "appointment": {"id": row[0], "status": row[1], "anotacoes": row[2]},
+        }), 200
+    finally:
+        conn.close()
+
+
+@bp.delete("/appointments/<int:appointment_id>")
+@require_auth
+def delete_appointment(appointment_id):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        profile = _profile_role(cur, g.auth_user_id)
+        role = profile[3] if profile else None
+        cur.execute(
+            "select paciente_id, medico_id from public.consultas where id = %s",
+            (appointment_id,),
+        )
+        appointment = cur.fetchone()
+        if not appointment:
+            return jsonify({"success": False, "message": "Consulta não encontrada."}), 404
+
+        user_id = int(g.auth_user_id)
+        if role != "admin" and user_id not in (appointment[0], appointment[1]):
+            return jsonify({"success": False, "message": "Consulta sem permissão."}), 403
+        cur.execute(
+            "delete from public.consultas where id = %s returning id",
+            (appointment_id,),
+        )
+        cur.fetchone()
+        conn.commit()
+        return jsonify({"success": True, "message": "Consulta excluída."}), 200
     finally:
         conn.close()

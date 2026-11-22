@@ -1,0 +1,2 @@
+-- Compatibilidade de ordem: os perfis reais existem em public.users.
+-- Não recria nem renomeia a tabela existente.

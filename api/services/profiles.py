@@ -6,7 +6,7 @@ from typing import Any
 
 
 def role_for_user(cursor: Any, user_id: str) -> str | None:
-    cursor.execute("select role from public.profiles where id = %s", (user_id,))
+    cursor.execute("select role from public.users where id = %s", (int(user_id),))
     row = cursor.fetchone()
     return row[0] if row else None
 
@@ -18,7 +18,7 @@ def is_admin(cursor: Any, user_id: str) -> bool:
 def doctor_profile(cursor: Any, user_id: str) -> Any | None:
     cursor.execute(
         """select id, nome, especialidade, valor_hora
-           from public.profiles where id = %s and role = 'medico'""",
-        (user_id,),
+           from public.users where id = %s and role in ('medico', 'profissional')""",
+        (int(user_id),),
     )
     return cursor.fetchone()

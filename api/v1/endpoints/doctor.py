@@ -22,20 +22,20 @@ def dashboard():
             }), 403
 
         cur.execute(
-            "select count(*) filter (where status = 'agendada'), count(*) filter (where status = 'realizada'), count(*) filter (where status = 'cancelada') from public.appointments where medico_id = %s",
-            (g.auth_user_id,)
+            "select count(*) filter (where status = 'agendada'), count(*) filter (where status in ('concluida', 'realizada')), count(*) filter (where status = 'cancelada') from public.consultas where medico_id = %s",
+            (int(g.auth_user_id),)
         )
         scheduled, completed, canceled = cur.fetchone()
 
         cur.execute(
-            "select coalesce(sum(valor), 0), count(*) from public.appointments where medico_id = %s and status = 'realizada'",
-            (g.auth_user_id,)
+            "select coalesce(sum(valor), 0), count(*) from public.consultas where medico_id = %s and status in ('concluida', 'realizada')",
+            (int(g.auth_user_id),)
         )
         total, count = cur.fetchone()
 
         cur.execute(
-            "select coalesce(round(avg(nota), 1), 0), count(*) from public.reviews where medico_id = %s",
-            (g.auth_user_id,)
+            "select coalesce(round(avg(nota), 1), 0), count(*) from public.avaliacoes where medico_id = %s",
+            (int(g.auth_user_id),)
         )
         rating, ratings = cur.fetchone()
 
@@ -77,9 +77,9 @@ def appointments():
 
         cur.execute(
             """select a.id, a.data_hora, a.valor, a.status, a.anotacoes, p.id, p.nome, p.email, p.telefone
-               from public.appointments a join public.profiles p on p.id = a.paciente_id
+               from public.consultas a join public.users p on p.id = a.paciente_id
                where a.medico_id = %s order by a.data_hora""",
-            (g.auth_user_id,)
+            (int(g.auth_user_id),)
         )
 
         data = [
@@ -120,8 +120,9 @@ def earnings():
             }), 403
 
         cur.execute(
-            "select coalesce(sum(valor), 0), count(*) from public.appointments where medico_id = %s and status = 'realizada'",
-            (g.auth_user_id,)
+            "select coalesce(sum(valor), 0), count(*) from public.consultas "
+            "where medico_id = %s and status in ('concluida', 'realizada')",
+            (int(g.auth_user_id),)
         )
         total, count = cur.fetchone()
 

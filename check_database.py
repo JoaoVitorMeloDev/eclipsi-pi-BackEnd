@@ -1,6 +1,6 @@
 from api.core.database import get_db
 
-TABLES = ('profiles', 'appointments', 'payments', 'reviews', 'conversations', 'messages', 'quiz_questions', 'quiz_attempts', 'quiz_answers')
+TABLES = ('users', 'consultas', 'pagamentos', 'avaliacoes')
 
 if __name__ == '__main__':
     conn = get_db()

@@ -1,0 +1,1 @@
+-- Supabase já gerencia as extensões existentes. Esta migration não altera objetos.

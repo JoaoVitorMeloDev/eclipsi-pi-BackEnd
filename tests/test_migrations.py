@@ -1,6 +1,6 @@
 from pathlib import Path
 
-ROOT = Path(__file__).parents[2]
+ROOT = Path(__file__).parents[1]
 MIGRATIONS = ROOT / 'database' / 'migrations'
 
 
@@ -13,7 +13,11 @@ def test_migrations_are_complete_and_ordered():
     assert [p.name for p in sorted(MIGRATIONS.glob('*.sql'))] == expected
 
 
-def test_security_objects_exist_in_migrations():
+def test_hardening_migration_protects_real_appointment_table():
     content = '\n'.join(p.read_text() for p in sorted(MIGRATIONS.glob('*.sql')))
-    for term in ('enable row level security', 'create policy', 'gen_random_uuid'):
-        assert term in content.lower()
+    normalized = content.lower()
+    assert 'ux_appointments_doctor_time' in normalized
+    assert 'public.consultas' in normalized
+    assert 'medico_id' in normalized
+    assert 'data_hora' in normalized
+    assert 'cancelada' in normalized

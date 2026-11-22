@@ -19,9 +19,11 @@ def _token_from_request() -> str | None:
 
 
 def _decode_token(token: str) -> dict[str, Any]:
-    secret = os.getenv("SUPABASE_JWT_SECRET")
+    secret = os.getenv("JWT_SECRET") or os.getenv("SUPABASE_JWT_SECRET")
     if not secret:
-        raise RuntimeError("SUPABASE_JWT_SECRET não configurado no backend.")
+        raise RuntimeError("JWT_SECRET ou SUPABASE_JWT_SECRET não configurado no backend.")
+    if os.getenv("JWT_SECRET"):
+        return jwt.decode(token, secret, algorithms=["HS256"])
     return jwt.decode(token, secret, algorithms=["HS256"], audience="authenticated")
 
 

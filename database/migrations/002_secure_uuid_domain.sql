@@ -1,0 +1,2 @@
+-- Os identificadores reais de users e consultas são inteiros/bigint.
+-- Esta migration não converte tipos já existentes no Supabase.

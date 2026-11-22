@@ -27,4 +27,10 @@ def database_config() -> dict[str, str | None]:
         "dbname": os.getenv("DB_NAME", "postgres"),
         "user": os.getenv("DB_USER"),
         "password": os.getenv("DB_PASSWORD"),
+        "sslmode": "require",
     }
+
+
+def database_url() -> str | None:
+    """Retorna a DSN direta do ambiente, quando configurada."""
+    return os.getenv("DATABASE_URL")

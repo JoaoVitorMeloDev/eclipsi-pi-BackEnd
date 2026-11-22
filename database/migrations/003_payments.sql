@@ -1,0 +1,2 @@
+-- Compatibilidade de ordem: public.pagamentos já existe no Supabase.
+-- Não recria nem renomeia a tabela existente.

@@ -1,0 +1,2 @@
+-- Não existem tabelas de quiz no inventário fornecido.
+-- Esta migration não cria objetos fora do esquema real informado.

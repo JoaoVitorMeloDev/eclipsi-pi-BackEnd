@@ -10,6 +10,27 @@ from app import app
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv('SUPABASE_JWT_SECRET', 'test-secret')
+    monkeypatch.setenv('JWT_SECRET', 'test-secret-with-at-least-32-characters')
+
+    class FakeCursor:
+        def execute(self, query, params=None):
+            self.query = query
+
+        def fetchone(self):
+            if 'from public.users' in self.query:
+                return (1, 'Teste', 'test@example.com', None, 'paciente', None)
+            return None
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    from api.core import database
+    monkeypatch.setattr(database, 'get_db', lambda: FakeConnection())
+
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
         yield test_client
@@ -17,7 +38,8 @@ def client(monkeypatch):
 
 def token():
     now = datetime.now(timezone.utc)
-    return jwt.encode({'sub': '00000000-0000-0000-0000-000000000001', 'email': 'test@example.com', 'aud': 'authenticated', 'iat': now, 'exp': now + timedelta(minutes=10)}, 'test-secret', algorithm='HS256')
+    secret = 'test-secret-with-at-least-32-characters'
+    return jwt.encode({'sub': '1', 'email': 'test@example.com', 'iat': now, 'exp': now + timedelta(minutes=10)}, secret, algorithm='HS256')
 
 
 def test_health(client):
@@ -36,6 +58,13 @@ def test_protected_endpoint_with_valid_token(client):
     assert response.status_code == 200
     assert response.json['user']['email'] == 'test@example.com'
 
-@pytest.mark.parametrize('path', ['/api/v2/doctors', '/api/v2/appointments', '/api/v2/chat/conversations', '/api/v2/quiz/questions', '/api/v2/payments'])
+def test_openapi_contract(client):
+    response = client.get('/api/v1/openapi.json')
+    assert response.status_code == 200
+    assert '/api/v1/auth/login' in response.json['paths']
+    assert '/api/v1/appointments/{appointment_id}' in response.json['paths']
+
+
+@pytest.mark.parametrize('path', ['/api/v1/doctors', '/api/v1/appointments', '/api/v1/chat/conversations', '/api/v1/quiz/questions', '/api/v1/payments'])
 def test_domain_routes_require_authentication(client, path):
     assert client.get(path).status_code == 401
