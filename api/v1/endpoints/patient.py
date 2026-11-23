@@ -14,6 +14,7 @@ bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 PROFILE_UPDATE_SETTERS = {
     "nome": "nome = %s",
+    "foto": "foto = %s",
     "telefone": "telefone = %s",
     "idade": "idade = %s",
     "genero": "genero = %s",
