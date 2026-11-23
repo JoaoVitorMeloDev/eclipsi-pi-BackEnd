@@ -43,6 +43,7 @@ def _doctor(row):
         "uf": row[4],
         "descricao": row[5],
         "valor_hora": float(row[6]) if row[6] is not None else None,
+        "foto": row[7] if len(row) > 7 else None,,
     }
 
 
@@ -145,7 +146,7 @@ def doctors():
     try:
         cur = conn.cursor()
         cur.execute(
-            """select id, nome, especialidade, registro, uf, descricao, valor_hora
+            """select id, nome, especialidade, registro, uf, descricao, valor_hora, foto
                from public.users
                where role in ('medico', 'profissional')
                  and (%s = '' or nome ilike %s

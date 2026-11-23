@@ -36,6 +36,23 @@ def stats():
         )
         completed = cur.fetchone()[0]
 
+        cur.execute(
+            """select coalesce(especialidade, 'Não informado'), count(*)
+               from public.users
+               where role in ('medico', 'profissional')
+               group by coalesce(especialidade, 'Não informado')
+               order by count(*) desc"""
+        )
+        especialidades = {row[0]: row[1] for row in cur.fetchall()}
+
+        cur.execute(
+            """select coalesce(sum(valor), 0),
+                      coalesce(sum(taxa_plataforma), 0),
+                      coalesce(sum(repasse), 0)
+               from public.pagamentos"""
+        )
+        payment_totals = cur.fetchone()
+
         return jsonify({
             'success': True,
             'stats': {
@@ -43,7 +60,13 @@ def stats():
                 'medicos': roles.get('medico', 0) + roles.get('profissional', 0),
                 'admins': roles.get('admin', 0),
                 'consultas': appointments,
-                'realizadas': completed
+                'realizadas': completed,
+                'especialidades': especialidades,
+                'pagamentos': {
+                    'valor': float(payment_totals[0]),
+                    'taxa_plataforma': float(payment_totals[1]),
+                    'repasse': float(payment_totals[2])
+                }
             }
         })
     finally:

@@ -35,7 +35,7 @@ def create_app() -> Flask:
             except (TypeError, ValueError):
                 profile_user_id = g.auth_user_id
             cur.execute(
-                "select id, nome, email, telefone, role, created_at "
+                "select id, nome, email, telefone, role, created_at, foto "
                 "from public.users where id = %s",
                 (profile_user_id,),
             )
@@ -54,6 +54,7 @@ def create_app() -> Flask:
                     "telefone": row[3],
                     "role": row[4],
                     "created_at": row[5].isoformat() if row[5] else None,
+                    "foto": row[6],
                 },
             }), 200
         except Exception:

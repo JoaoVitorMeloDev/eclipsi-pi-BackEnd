@@ -100,7 +100,13 @@ def _register(role: str):
     nome = str(data["nome"]).strip()
     email = str(data["email"]).strip().lower()
     password = str(data["senha"])
-    telefone = data.get("telefone")
+    telefone = "".join(ch for ch in str(data.get("telefone") or "") if ch.isdigit())
+    if telefone and len(telefone) not in (10, 11):
+        return jsonify({
+            "success": False,
+            "message": "Telefone deve conter 10 ou 11 dígitos.",
+        }), 400
+    telefone = telefone or None
     idade = data.get("idade")
     genero = data.get("genero")
     especialidade = data.get("especialidade")
@@ -173,4 +179,4 @@ def register_user():
 
 @bp.post("/register/doctor")
 def register_doctor():
-    return _register("profissional")
+    return _register("medico")
