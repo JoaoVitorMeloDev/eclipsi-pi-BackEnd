@@ -14,6 +14,7 @@ bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
 PROFILE_UPDATE_SETTERS = {
     "nome": "nome = %s",
+    "email": "email = %s",
     "foto": "foto = %s",
     "telefone": "telefone = %s",
     "idade": "idade = %s",
@@ -43,7 +44,7 @@ def _doctor(row):
         "uf": row[4],
         "descricao": row[5],
         "valor_hora": float(row[6]) if row[6] is not None else None,
-        "foto": row[7] if len(row) > 7 else None,,
+        "foto": row[7] if len(row) > 7 else None,
     }
 
 
@@ -100,6 +101,7 @@ def my_profile():
 
 
 @bp.patch("/profile/me")
+@bp.put("/profile/me")
 @require_auth
 def update_my_profile():
     data = request.get_json() or {}

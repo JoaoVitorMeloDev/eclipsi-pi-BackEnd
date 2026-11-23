@@ -37,13 +37,17 @@ def stats():
         completed = cur.fetchone()[0]
 
         cur.execute(
-            """select coalesce(especialidade, 'Não informado'), count(*)
+            """select coalesce(nullif(trim(especialidade), ''), 'Não informada') as especialidade,
+                      count(*) as total
                from public.users
-               where role in ('medico', 'profissional')
-               group by coalesce(especialidade, 'Não informado')
-               order by count(*) desc"""
+               where lower(role) in ('medico', 'profissional')
+               group by coalesce(nullif(trim(especialidade), ''), 'Não informada')
+               order by total desc"""
         )
-        especialidades = {row[0]: row[1] for row in cur.fetchall()}
+        especialidades = [
+            {'especialidade': row[0], 'total': row[1]}
+            for row in cur.fetchall()
+        ]
 
         cur.execute(
             """select coalesce(sum(valor), 0),

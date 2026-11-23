@@ -8,6 +8,7 @@ PAYMENT_STATUSES = frozenset({"pago", "falhou", "estornado", "pendente"})
 PROFILE_UPDATE_FIELDS = frozenset(
     {
         "nome",
+        "email",
         "foto",
         "telefone",
         "idade",
